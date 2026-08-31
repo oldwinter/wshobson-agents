@@ -12,6 +12,7 @@ import re
 from pathlib import Path
 
 # tools.adapters.* imports happen via the conftest sys.path injection
+from tools.adapters.antigravity import AntigravityAdapter
 from tools.adapters.base import PluginSource, parse_frontmatter
 from tools.adapters.codex import CodexAdapter, _split_body_if_oversized
 from tools.adapters.copilot import (
@@ -20,7 +21,6 @@ from tools.adapters.copilot import (
     _needs_yaml_quoting,
 )
 from tools.adapters.cursor import CursorAdapter
-from tools.adapters.gemini import _INLINE_BODY_THRESHOLD, GeminiAdapter
 from tools.adapters.opencode import OpenCodeAdapter, _opencode_skill_id
 
 # ── Codex ────────────────────────────────────────────────────────────────────
@@ -925,82 +925,298 @@ class TestOpenCodeAdapter:
         assert "subtask: true" in delegate  # genuine orchestration still detected
 
 
-# ── Gemini ───────────────────────────────────────────────────────────────────
+# ── Antigravity ──────────────────────────────────────────────────────────────
 
 
-class TestGeminiAdapter:
-    def test_emits_native_skill_at_extension_root(
-        self, synthetic_plugin: PluginSource, output_root: Path
-    ):
-        GeminiAdapter(output_root=output_root).emit_plugin(synthetic_plugin)
-        skill_md = output_root / "skills" / "demo__hello" / "SKILL.md"
+class TestAntigravityAdapter:
+    def test_emits_plugin_json(self, synthetic_plugin: PluginSource, output_root: Path):
+        AntigravityAdapter(output_root=output_root).emit_plugin(synthetic_plugin)
+        plugin_json = output_root / ".antigravity" / "plugins" / "demo" / "plugin.json"
+        assert plugin_json.is_file()
+
+        data = json.loads(plugin_json.read_text())
+        assert data["name"] == "demo"
+        assert data["description"] == "Demo plugin for tests"
+
+    def test_emits_skill_with_bare_name(self, synthetic_plugin: PluginSource, output_root: Path):
+        AntigravityAdapter(output_root=output_root).emit_plugin(synthetic_plugin)
+        skill_md = (
+            output_root / ".antigravity" / "plugins" / "demo" / "skills" / "hello" / "SKILL.md"
+        )
         assert skill_md.is_file()
+
         fm, _ = parse_frontmatter(skill_md.read_text())
-        assert fm["name"] == "demo__hello"
+        # No `<plugin>__` namespacing — the plugin directory already scopes it.
+        assert fm["name"] == "hello"
 
-    def test_emits_native_subagent(self, synthetic_plugin: PluginSource, output_root: Path):
-        GeminiAdapter(output_root=output_root).emit_plugin(synthetic_plugin)
-        agent_md = output_root / "agents" / "demo__greeter.md"
-        assert agent_md.is_file()
-        fm, _ = parse_frontmatter(agent_md.read_text())
-        # opus -> gemini-2.5-pro
-        assert fm["model"] == "gemini-2.5-pro"
-
-    def test_inline_command_when_body_is_small(
-        self, synthetic_plugin: PluginSource, output_root: Path
+    def test_mirrors_all_skill_support_dirs_not_just_references(
+        self, tmp_path: Path, output_root: Path
     ):
-        """Small commands inline the body — no @{path} indirection."""
-        GeminiAdapter(output_root=output_root).emit_plugin(synthetic_plugin)
-        toml_path = output_root / "commands" / "demo" / "say-hi.toml"
-        assert toml_path.is_file()
-        content = toml_path.read_text()
-        # Synthetic command body is ~30 bytes — well under inline threshold
-        assert "@{plugins/" not in content
-        assert "Greet the user" in content
-
-    def test_injection_when_body_is_large(self, tmp_path: Path, output_root: Path):
-        """Large command bodies use Gemini's @{path} file injection."""
-        from tools.tests.conftest import _make_command
+        """scripts/, assets/, resources/, examples/ must be mirrored alongside
+        references/ — not dropped (P1: broken workflows without them)."""
+        from tools.tests.conftest import _make_skill
 
         plugin_dir = tmp_path / "demo"
         plugin_dir.mkdir()
         (plugin_dir / ".claude-plugin").mkdir()
         (plugin_dir / ".claude-plugin" / "plugin.json").write_text('{"name": "demo"}')
-        # Body bigger than _INLINE_BODY_THRESHOLD
-        big_body = "# Big command\n\n" + ("x " * (_INLINE_BODY_THRESHOLD))
-        cmd = _make_command(plugin_dir, "bigcmd", 'description: "Big"', big_body)
-        plugin = PluginSource(
-            name="demo", dir=plugin_dir, plugin_json={"name": "demo"}, commands=[cmd]
+        skill = _make_skill(
+            plugin_dir,
+            "toolkit",
+            "name: toolkit\ndescription: Use when running the toolkit.",
+            "# Toolkit\n\nRun `scripts/preflight.sh`.\n",
         )
-        GeminiAdapter(output_root=output_root).emit_plugin(plugin)
+        (skill.dir / "references").mkdir()
+        (skill.dir / "references" / "notes.md").write_text("notes")
+        (skill.dir / "scripts").mkdir()
+        (skill.dir / "scripts" / "preflight.sh").write_text("#!/bin/sh\necho ok\n")
+        (skill.dir / "assets").mkdir()
+        (skill.dir / "assets" / "logo.png").write_bytes(b"\x89PNG\r\n")
+        (skill.dir / "resources").mkdir()
+        (skill.dir / "resources" / "data.json").write_text("{}")
+        (skill.dir / "examples").mkdir()
+        (skill.dir / "examples" / "sample.txt").write_text("example")
+        # Hidden files must NOT be mirrored.
+        (skill.dir / ".DS_Store").write_text("junk")
+        hidden_dir = skill.dir / ".cache"
+        hidden_dir.mkdir()
+        (hidden_dir / "ignored.txt").write_text("ignored")
 
-        content = (output_root / "commands" / "demo" / "bigcmd.toml").read_text()
-        assert "@{plugins/demo/commands/bigcmd.md}" in content
+        plugin = PluginSource(
+            name="demo", dir=plugin_dir, plugin_json={"name": "demo"}, skills=[skill]
+        )
+        AntigravityAdapter(output_root=output_root).emit_plugin(plugin)
+
+        skill_root = output_root / ".antigravity" / "plugins" / "demo" / "skills" / "toolkit"
+        assert (skill_root / "references" / "notes.md").is_file()
+        assert (skill_root / "scripts" / "preflight.sh").is_file()
+        assert (skill_root / "assets" / "logo.png").is_file()
+        assert (skill_root / "resources" / "data.json").is_file()
+        assert (skill_root / "examples" / "sample.txt").is_file()
+        assert not (skill_root / ".DS_Store").exists()
+        assert not (skill_root / ".cache").exists()
+        # SKILL.md itself isn't duplicated by the mirroring loop.
+        assert (skill_root / "SKILL.md").read_text().count("# Toolkit") == 1
+
+    def test_preserves_mapping_valued_frontmatter_field(self, tmp_path: Path, output_root: Path):
+        """A dict-valued field (e.g. `metadata`) must round-trip as a YAML mapping,
+        not get flattened into a broken `str(dict)` scalar."""
+        from tools.tests.conftest import _make_skill
+
+        plugin_dir = tmp_path / "demo"
+        plugin_dir.mkdir()
+        (plugin_dir / ".claude-plugin").mkdir()
+        (plugin_dir / ".claude-plugin" / "plugin.json").write_text('{"name": "demo"}')
+        skill = _make_skill(
+            plugin_dir,
+            "meta",
+            "name: meta\ndescription: Use when testing.\nmetadata:\n  version: 1.0.0\n  source: https://example.com/repo",
+            "# Meta\n",
+        )
+        plugin = PluginSource(
+            name="demo", dir=plugin_dir, plugin_json={"name": "demo"}, skills=[skill]
+        )
+        AntigravityAdapter(output_root=output_root).emit_plugin(plugin)
+
+        skill_md = (
+            output_root / ".antigravity" / "plugins" / "demo" / "skills" / "meta" / "SKILL.md"
+        )
+        content = skill_md.read_text()
+        assert "{'version'" not in content
+        fm, _ = parse_frontmatter(content)
+        assert isinstance(fm["metadata"], dict)
+        assert fm["metadata"]["version"] == "1.0.0"
+        assert fm["metadata"]["source"] == "https://example.com/repo"
+
+    def test_quotes_comma_in_flow_list_item(self, tmp_path: Path, output_root: Path):
+        """A list item containing a comma must be quoted in the emitted flow
+        sequence, or it silently splits into two list items on round-trip."""
+        from tools.tests.conftest import _make_skill
+
+        plugin_dir = tmp_path / "demo"
+        plugin_dir.mkdir()
+        (plugin_dir / ".claude-plugin").mkdir()
+        (plugin_dir / ".claude-plugin" / "plugin.json").write_text('{"name": "demo"}')
+        skill = _make_skill(
+            plugin_dir,
+            "tagged",
+            'name: tagged\ndescription: Use when testing.\ntags: ["foo, bar", baz]',
+            "# Tagged\n",
+        )
+        plugin = PluginSource(
+            name="demo", dir=plugin_dir, plugin_json={"name": "demo"}, skills=[skill]
+        )
+        AntigravityAdapter(output_root=output_root).emit_plugin(plugin)
+
+        skill_md = (
+            output_root / ".antigravity" / "plugins" / "demo" / "skills" / "tagged" / "SKILL.md"
+        )
+        fm, _ = parse_frontmatter(skill_md.read_text())
+        assert fm["tags"] == ["foo, bar", "baz"]
+
+    def test_emits_agent_with_tier_model_and_mapped_tools(
+        self, synthetic_plugin: PluginSource, output_root: Path
+    ):
+        AntigravityAdapter(output_root=output_root).emit_plugin(synthetic_plugin)
+        agent_md = output_root / ".antigravity" / "plugins" / "demo" / "agents" / "greeter.md"
+        assert agent_md.is_file()
+
+        fm, _ = parse_frontmatter(agent_md.read_text())
+        assert fm["name"] == "greeter"
+        # opus -> pro (agy tier alias, not a concrete gemini/claude model id)
+        assert fm["model"] == "pro"
+        # Read, Grep -> view_file, grep_search (confirmed agy tool names)
+        assert fm["tools"] == ["view_file", "grep_search"]
+        assert fm["subagent"] == "true"
+
+    def test_agent_omits_tools_when_source_has_no_tools_field(
+        self, tmp_path: Path, output_root: Path
+    ):
+        from tools.tests.conftest import _make_agent
+
+        plugin_dir = tmp_path / "demo"
+        plugin_dir.mkdir()
+        (plugin_dir / ".claude-plugin").mkdir()
+        (plugin_dir / ".claude-plugin" / "plugin.json").write_text('{"name": "demo"}')
+        agent = _make_agent(
+            plugin_dir,
+            "unrestricted",
+            "name: unrestricted\ndescription: Use when unrestricted.",
+            "# Unrestricted\n",
+        )
+        plugin = PluginSource(
+            name="demo", dir=plugin_dir, plugin_json={"name": "demo"}, agents=[agent]
+        )
+        AntigravityAdapter(output_root=output_root).emit_plugin(plugin)
+
+        agent_md = output_root / ".antigravity" / "plugins" / "demo" / "agents" / "unrestricted.md"
+        fm, _ = parse_frontmatter(agent_md.read_text())
+        assert "tools" not in fm
+
+    def test_model_alias_tiers(self, tmp_path: Path, output_root: Path):
+        from tools.tests.conftest import _make_agent
+
+        plugin_dir = tmp_path / "demo"
+        plugin_dir.mkdir()
+        (plugin_dir / ".claude-plugin").mkdir()
+        (plugin_dir / ".claude-plugin" / "plugin.json").write_text('{"name": "demo"}')
+
+        agents = [
+            _make_agent(
+                plugin_dir,
+                name,
+                f"name: {name}\ndescription: Use for {name}.\nmodel: {model}",
+                f"# {name}\n",
+            )
+            for name, model in [
+                ("sonnet-agent", "sonnet"),
+                ("haiku-agent", "haiku"),
+                ("inherit-agent", "inherit"),
+            ]
+        ]
+        plugin = PluginSource(
+            name="demo", dir=plugin_dir, plugin_json={"name": "demo"}, agents=agents
+        )
+        AntigravityAdapter(output_root=output_root).emit_plugin(plugin)
+
+        expected = {"sonnet-agent": "pro", "haiku-agent": "flash", "inherit-agent": "inherit"}
+        for name, exp_model in expected.items():
+            agent_md = output_root / ".antigravity" / "plugins" / "demo" / "agents" / f"{name}.md"
+            fm, _ = parse_frontmatter(agent_md.read_text())
+            assert fm["model"] == exp_model, f"{name}: expected {exp_model}, got {fm['model']}"
+
+    def test_command_always_inlines_never_at_path(
+        self, synthetic_plugin: PluginSource, output_root: Path
+    ):
+        """`agy plugin validate` never evaluates @{path}, so commands always inline."""
+        AntigravityAdapter(output_root=output_root).emit_plugin(synthetic_plugin)
+        toml_path = (
+            output_root / ".antigravity" / "plugins" / "demo" / "commands" / "demo" / "say-hi.toml"
+        )
+        assert toml_path.is_file()
+        content = toml_path.read_text()
+        assert "@{" not in content
+        assert "Greet the user" in content
 
     def test_command_toml_parses_as_valid_toml(
         self, synthetic_plugin: PluginSource, output_root: Path
     ):
         import tomllib
 
-        GeminiAdapter(output_root=output_root).emit_plugin(synthetic_plugin)
-        toml_path = output_root / "commands" / "demo" / "say-hi.toml"
+        AntigravityAdapter(output_root=output_root).emit_plugin(synthetic_plugin)
+        toml_path = (
+            output_root / ".antigravity" / "plugins" / "demo" / "commands" / "demo" / "say-hi.toml"
+        )
         parsed = tomllib.loads(toml_path.read_text())
         assert "description" in parsed
         assert "prompt" in parsed
         assert "{{args}}" in parsed["prompt"]
-        # {{args}} must be near the end so user input is the final context
-        assert parsed["prompt"].rstrip().endswith("{{args}}")
+        # The synthetic command body already contains `$ARGUMENTS`, translated in
+        # place — no duplicate trailing {{args}} block is appended.
+        assert "$ARGUMENTS" not in parsed["prompt"]
+        assert parsed["prompt"].count("{{args}}") == 1
 
-    def test_plugin_entry_command_at_top_level(
-        self, synthetic_plugin: PluginSource, output_root: Path
+    def test_translates_dollar_arguments_placeholder_mid_body(
+        self, tmp_path: Path, output_root: Path
     ):
-        GeminiAdapter(output_root=output_root).emit_plugin(synthetic_plugin)
-        entry = output_root / "commands" / "demo.toml"
-        assert entry.is_file()
-        # Should list subagents and skills
-        content = entry.read_text()
-        assert "demo__greeter" in content
-        assert "demo__hello" in content
+        """`$ARGUMENTS` occurrences anywhere in the body are translated to agy's
+        `{{args}}` in place; no duplicate trailing {{args}} block is appended."""
+        from tools.tests.conftest import _make_command
+
+        plugin_dir = tmp_path / "demo"
+        plugin_dir.mkdir()
+        (plugin_dir / ".claude-plugin").mkdir()
+        (plugin_dir / ".claude-plugin" / "plugin.json").write_text('{"name": "demo"}')
+        cmd = _make_command(
+            plugin_dir,
+            "echo",
+            'description: "Echo"',
+            "Echo back: $ARGUMENTS\n\nDo it again: $ARGUMENTS.",
+        )
+        plugin = PluginSource(
+            name="demo", dir=plugin_dir, plugin_json={"name": "demo"}, commands=[cmd]
+        )
+        AntigravityAdapter(output_root=output_root).emit_plugin(plugin)
+
+        import tomllib
+
+        toml_path = (
+            output_root / ".antigravity" / "plugins" / "demo" / "commands" / "demo" / "echo.toml"
+        )
+        parsed = tomllib.loads(toml_path.read_text())
+        assert "$ARGUMENTS" not in parsed["prompt"]
+        assert parsed["prompt"].count("{{args}}") == 2
+
+    def test_appends_trailing_args_block_when_source_has_no_dollar_arguments(
+        self, tmp_path: Path, output_root: Path
+    ):
+        """Commands without `$ARGUMENTS` in the body still get exactly one trailing
+        {{args}} block so agy binds user input somewhere."""
+        from tools.tests.conftest import _make_command
+
+        plugin_dir = tmp_path / "demo"
+        plugin_dir.mkdir()
+        (plugin_dir / ".claude-plugin").mkdir()
+        (plugin_dir / ".claude-plugin" / "plugin.json").write_text('{"name": "demo"}')
+        cmd = _make_command(
+            plugin_dir,
+            "static",
+            'description: "Static"',
+            "Do a fixed thing, no arguments needed.",
+        )
+        plugin = PluginSource(
+            name="demo", dir=plugin_dir, plugin_json={"name": "demo"}, commands=[cmd]
+        )
+        AntigravityAdapter(output_root=output_root).emit_plugin(plugin)
+
+        import tomllib
+
+        toml_path = (
+            output_root / ".antigravity" / "plugins" / "demo" / "commands" / "demo" / "static.toml"
+        )
+        parsed = tomllib.loads(toml_path.read_text())
+        assert parsed["prompt"].count("{{args}}") == 1
+        assert parsed["prompt"].rstrip().endswith("{{args}}")
 
 
 # ── Copilot ──────────────────────────────────────────────────────────────────
@@ -1282,10 +1498,10 @@ class TestCapabilities:
         from tools.adapters.capabilities import CAPABILITIES
 
         for adapter_cls in (
+            AntigravityAdapter,
             CodexAdapter,
             CopilotAdapter,
             CursorAdapter,
-            GeminiAdapter,
             OpenCodeAdapter,
         ):
             assert adapter_cls.harness_id in CAPABILITIES
@@ -1297,3 +1513,125 @@ class TestCapabilities:
         for harness in supported_harnesses():
             for alias in ("fable", "opus", "sonnet", "haiku", "inherit"):
                 assert alias in MODEL_ALIASES[harness], f"{harness} missing {alias}"
+
+
+# ── Tool-reference rewriting ─────────────────────────────────────────────────
+
+
+class TestStripClaudeToolRefs:
+    """Characterization tests for `HarnessAdapter.strip_claude_tool_refs`.
+
+    Copilot command bodies are rewritten through this method, and its output is not
+    otherwise asserted anywhere. These tests pin the exact strings so that a refactor
+    which changes them has to say so instead of slipping through.
+    """
+
+    SAMPLE = "Use the `Read` tool first, then the Bash tool. Prefer `Grep` over `Glob`."
+
+    def _adapter(self, tmp_path: Path) -> CopilotAdapter:
+        return CopilotAdapter(output_root=tmp_path)
+
+    def test_lower_case_output_is_exact(self, tmp_path: Path):
+        assert (
+            self._adapter(tmp_path).strip_claude_tool_refs(self.SAMPLE, tool_case="lower")
+            == "Use `open` first, then `shell`. Prefer `grep` over `glob`."
+        )
+
+    def test_normal_case_output_is_exact(self, tmp_path: Path):
+        """`normal` keeps Read as `read` and leaves bare backticked names alone."""
+        assert (
+            self._adapter(tmp_path).strip_claude_tool_refs(self.SAMPLE, tool_case="normal")
+            == "Use `read` first, then `shell`. Prefer `Grep` over `Glob`."
+        )
+
+    def test_replacements_keep_their_backticks(self, tmp_path: Path):
+        out = self._adapter(tmp_path).strip_claude_tool_refs("Run the Bash tool.")
+        assert out == "Run `shell`."
+        assert "`shell`" in out, "replacement must stay inside backticks"
+
+    def test_backticked_prose_form(self, tmp_path: Path):
+        assert (
+            self._adapter(tmp_path).strip_claude_tool_refs("Call the `WebFetch` tool now.")
+            == "Call `fetch` now."
+        )
+
+    def test_bare_backticked_name_is_lowercased_not_verbed(self, tmp_path: Path):
+        """`Grep` on its own becomes `grep` — the lowercased name, not the `rg` verb."""
+        assert self._adapter(tmp_path).strip_claude_tool_refs("Prefer `Grep`.") == "Prefer `grep`."
+
+    def test_prose_words_are_left_alone(self, tmp_path: Path):
+        """Conservative by design: only the two tool phrasings are touched."""
+        sample = "Read the docs, then write a summary and edit it."
+        assert self._adapter(tmp_path).strip_claude_tool_refs(sample) == sample
+
+    def test_every_mapped_tool_is_covered(self, tmp_path: Path):
+        """Both cases, passed explicitly so a change to the default is caught.
+
+        Only Read differs between the two. The rest are pinned in both modes so a
+        future divergence has to be deliberate.
+        """
+        adapter = self._adapter(tmp_path)
+        # camel -> (tool_case="lower", tool_case="normal")
+        expected = {
+            "Read": ("open", "read"),
+            "Edit": ("edit", "edit"),
+            "Write": ("write", "write"),
+            "Bash": ("shell", "shell"),
+            "Grep": ("rg", "rg"),
+            "Glob": ("glob", "glob"),
+            "WebFetch": ("fetch", "fetch"),
+            "WebSearch": ("search", "search"),
+            "TodoWrite": ("todo", "todo"),
+        }
+        for camel, (lower_verb, normal_verb) in expected.items():
+            body = f"Use the {camel} tool."
+            assert adapter.strip_claude_tool_refs(body, tool_case="lower") == f"Use `{lower_verb}`."
+            assert (
+                adapter.strip_claude_tool_refs(body, tool_case="normal") == f"Use `{normal_verb}`."
+            )
+
+    def test_emitted_copilot_command_rewrites_tool_refs(self, tmp_path: Path):
+        """Cover the real path: what a generated Copilot command body actually says.
+
+        The unit assertions above pin the method. Copilot's two call sites pass
+        `tool_case="lower"` explicitly, so this asserts the emitted file instead of the
+        method default, which is what would actually regress.
+        """
+        from tools.adapters.base import CommandSource, PluginSource
+
+        plugin_dir = tmp_path / "src" / "demo"
+        cmds = plugin_dir / "commands"
+        cmds.mkdir(parents=True)
+        body = "Use the `Read` tool first, then the Bash tool. Prefer `Grep` over `Glob`."
+        content = f"---\ndescription: Demo command.\n---\n\n{body}\n"
+        (cmds / "demo-cmd.md").write_text(content, encoding="utf-8")
+        fm, parsed_body = parse_frontmatter(content)
+        command = CommandSource(
+            plugin="demo",
+            name="demo-cmd",
+            path=cmds / "demo-cmd.md",
+            frontmatter=fm,
+            body=parsed_body,
+        )
+        plugin = PluginSource(
+            name="demo", dir=plugin_dir, plugin_json={"name": "demo"}, commands=[command]
+        )
+
+        out = tmp_path / "out"
+        result = CopilotAdapter(output_root=out).emit_plugin(plugin)
+        emitted = [p for p in result.written if p.suffix == ".md"]
+        # Copilot writes the command twice, as a skill and as a legacy command, and
+        # also writes a plugin index that carries no command body.
+        command_files = [p for p in emitted if p.name in {"SKILL.md", "demo-cmd.md"}]
+        assert len(command_files) == 2, [p.name for p in emitted]
+
+        # Per file, not joined: a joined string would let one emitter regress to
+        # `read` while the other's `open` still satisfied the assertion.
+        for path in command_files:
+            text = path.read_text(encoding="utf-8")
+            assert "`open`" in text, path
+            assert "`shell`" in text, path
+            assert "`grep`" in text, path
+            assert "`read`" not in text, path
+            assert "the `Read` tool" not in text, path
+            assert "the Bash tool" not in text, path

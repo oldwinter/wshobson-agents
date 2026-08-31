@@ -61,6 +61,31 @@ class TestSimResultFromMessages:
         assert sim.activated is True
         assert sim.quality_score == 0.5
 
+    def test_errored_result_text_does_not_activate(self):
+        # An errored SDK run whose result carries diagnostic text used to come
+        # back activated=True *and* errored=True, so the same run was counted in
+        # both n_activated and n_errored.
+        sim = _simresult_from_messages([_result(is_error=True, result="API error")], "p", 10)
+        assert sim.errored is True
+        assert sim.activated is False
+        assert sim.quality_score == 0.0
+
+    def test_errored_run_with_assistant_text_does_not_activate(self):
+        # Same rule when the error arrives after some assistant text: the run
+        # failed, so it cannot count towards the activation rate.
+        sim = _simresult_from_messages(
+            [_assistant("x" * 250), _result(is_error=True, result="API error")], "p", 10
+        )
+        assert sim.errored is True
+        assert sim.activated is False
+        assert sim.quality_score == 0.0
+
+    def test_errored_run_matches_the_exception_path(self):
+        # run_simulation's except branch reports a failed run as
+        # activated=False/quality 0.0; an SDK-reported error must look the same.
+        sim = _simresult_from_messages([_result(is_error=True, result="boom")], "p", 10)
+        assert (sim.activated, sim.quality_score, sim.errored) == (False, 0.0, True)
+
     def test_tokens_summed_from_usage(self):
         sim = _simresult_from_messages(
             [_assistant("hi"), _result(usage={"input_tokens": 3, "output_tokens": 4})],
@@ -68,6 +93,14 @@ class TestSimResultFromMessages:
             10,
         )
         assert sim.tokens == 7
+
+    def test_model_captured_from_assistant_message(self):
+        sim = _simresult_from_messages([_assistant("hi"), _result()], "p", 10)
+        assert sim.model == "claude-sonnet-5"
+
+    def test_model_is_none_without_an_assistant_message(self):
+        sim = _simresult_from_messages([_result(result="x" * 250)], "p", 10)
+        assert sim.model is None
 
 
 class TestSimResult:
@@ -109,6 +142,67 @@ class TestMonteCarloAnalyzer:
         assert stats["triggering"]["activation_rate"] == pytest.approx(0.98)
         assert stats["failure_rate"]["p_fail"] == pytest.approx(0.02)
         assert stats["output_consistency"]["cv"] < 0.15
+
+    def test_errored_runs_do_not_inflate_the_activation_rate(self):
+        """An errored run counts once, against the failure rate -- not twice."""
+        analyzer = MonteCarloAnalyzer(MonteCarloConfig(n_runs=4))
+        results = [
+            _simresult_from_messages([_assistant("x" * 250), _result()], "p", 10),
+            _simresult_from_messages([_assistant("x" * 250), _result()], "p", 10),
+            _simresult_from_messages([_result(is_error=True, result="API error")], "p", 10),
+            _simresult_from_messages([_result(is_error=True, result="API error")], "p", 10),
+        ]
+
+        stats = analyzer._compute_statistics(results)
+
+        assert stats["triggering"]["n_activated"] == 2
+        assert stats["triggering"]["activation_rate"] == pytest.approx(0.5)
+        assert stats["failure_rate"]["p_fail"] == pytest.approx(0.5)
+
+
+class TestMonteCarloModelUsage:
+    """Per-sim token usage aggregates by the model the SDK actually reported."""
+
+    @pytest.mark.asyncio
+    @patch("plugin_eval.layers.judge.query_llm")
+    @patch("plugin_eval.layers.monte_carlo.run_simulation")
+    async def test_analyze_skill_records_model_usage(
+        self, mock_sim, mock_query_llm, sample_skill_dir: Path
+    ):
+        # Prompt generation also calls query_llm (Haiku); force the fallback
+        # path so this test's usage total reflects only the sims below.
+        mock_query_llm.return_value = {"unmeasured": True}
+        mock_sim.return_value = SimResult(
+            activated=True,
+            quality_score=0.82,
+            tokens=2800,
+            duration_ms=1500,
+            model="claude-sonnet-5",
+        )
+        config = MonteCarloConfig(n_runs=10, concurrency=2)
+        analyzer = MonteCarloAnalyzer(config)
+        result = await analyzer.analyze_skill(sample_skill_dir)
+
+        assert result.metadata["model_usage"] == {"claude-sonnet-5": 28000}
+
+    @pytest.mark.asyncio
+    @patch("plugin_eval.layers.judge.query_llm")
+    @patch("plugin_eval.layers.monte_carlo.run_simulation")
+    async def test_sims_without_a_reported_model_are_not_attributed(
+        self, mock_sim, mock_query_llm, sample_skill_dir: Path
+    ):
+        # run_simulation's exception path (and any stream lacking an
+        # AssistantMessage) leaves model=None -- those tokens can't be
+        # attributed to a model and must be skipped, not mis-keyed under "None".
+        mock_query_llm.return_value = {"unmeasured": True}
+        mock_sim.return_value = SimResult(
+            activated=False, quality_score=0.0, tokens=0, duration_ms=0, errored=True, model=None
+        )
+        config = MonteCarloConfig(n_runs=5, concurrency=2)
+        analyzer = MonteCarloAnalyzer(config)
+        result = await analyzer.analyze_skill(sample_skill_dir)
+
+        assert result.metadata["model_usage"] == {}
 
 
 class TestUsageTotalTokens:

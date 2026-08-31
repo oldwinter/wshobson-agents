@@ -1,6 +1,6 @@
 # Complete Plugin Reference
 
-Browse all **94 marketplace plugins** organized by category: 90 local plugins plus 4 externally hosted `git-subdir` entries (`pensyve`, `qa-orchestra`, `storymap-skill`, `ciagent`).
+Browse all **93 marketplace plugins** organized by category: 91 local plugins plus 2 externally hosted `git-subdir` entries (`pensyve` and `hol-guard`).
 
 ## Quick Start - Essential Plugins
 
@@ -119,7 +119,7 @@ Next.js, React + Vite, and Node.js project setup with pnpm and TypeScript best p
 | **multi-platform-apps**         | Cross-platform app coordination (web/iOS/Android)            | `/plugin install multi-platform-apps`         |
 | **developer-essentials**        | Essential Git, SQL, code review, auth, debugging, and monorepo skills | `/plugin install developer-essentials`        |
 
-### 📚 Documentation (4 plugins)
+### 📚 Documentation (5 plugins)
 
 | Plugin                       | Description                                                                                                                                     | Install                                    |
 | ---------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------ |
@@ -127,8 +127,9 @@ Next.js, React + Vite, and Node.js project setup with pnpm and TypeScript best p
 | **code-documentation**       | Documentation generation and code explanation                                                                                                   | `/plugin install code-documentation`       |
 | **documentation-generation** | OpenAPI specs, Mermaid diagrams, tutorials                                                                                                      | `/plugin install documentation-generation` |
 | **c4-architecture**          | Comprehensive C4 architecture documentation workflow with bottom-up code analysis, component synthesis, container mapping, and context diagrams | `/plugin install c4-architecture`          |
+| **avoid-ai-writing**         | Audit and rewrite prose that reads as machine-generated across READMEs, changelogs, PR descriptions, and docs                                    | `/plugin install avoid-ai-writing`         |
 
-### 🔄 Workflows (8 plugins)
+### 🔄 Workflows (7 plugins)
 
 | Plugin                       | Description                                                                    | Install                                    |
 | ---------------------------- | ------------------------------------------------------------------------------ | ------------------------------------------ |
@@ -139,15 +140,12 @@ Next.js, React + Vite, and Node.js project setup with pnpm and TypeScript best p
 | **tdd-workflows**            | Test-driven development methodology                                            | `/plugin install tdd-workflows`            |
 | **agent-teams**              | Parallel code review, debugging, feature, and research teams                   | `/plugin install agent-teams`              |
 | **ship-mate**                | Story-file to reviewed, tested PR workflow orchestration                       | `/plugin install ship-mate`                |
-| **storymap-skill**           | User story mapping (Jeff Patton) with WSJF/RICE/MoSCoW prioritization — external plugin | `/plugin install storymap-skill`           |
 
-### ✅ Testing (3 plugins)
+### ✅ Testing (1 plugin)
 
 | Plugin             | Description                                                                          | Install                          |
 | ------------------ | ------------------------------------------------------------------------------------ | -------------------------------- |
 | **unit-testing**   | Automated unit test generation (Python/JavaScript)                                   | `/plugin install unit-testing`   |
-| **qa-orchestra**   | Multi-agent QA toolkit (10 agents, Chrome MCP live validation, stack-agnostic) — external plugin | `/plugin install qa-orchestra`   |
-| **ciagent**        | Pytest-native regression testing for AI agents (golden-trace diffing, stability runs with flip attribution, LLM-judge audit) — external plugin | `/plugin install ciagent`        |
 
 ### 🔍 Quality (4 plugins)
 
@@ -168,7 +166,7 @@ Next.js, React + Vite, and Node.js project setup with pnpm and TypeScript best p
 | **file-conversion**       | Convert files across 1,000+ format pairs   | `/plugin install file-conversion`       |
 | **team-collaboration**    | Team workflows and standup automation      | `/plugin install team-collaboration`    |
 
-### 🤖 AI & ML (7 plugins)
+### 🤖 AI & ML (6 plugins)
 
 | Plugin                   | Description                         | Install                                |
 | ------------------------ | ----------------------------------- | -------------------------------------- |
@@ -176,7 +174,6 @@ Next.js, React + Vite, and Node.js project setup with pnpm and TypeScript best p
 | **agent-orchestration**  | Multi-agent system optimization     | `/plugin install agent-orchestration`  |
 | **context-management**   | Context persistence and restoration | `/plugin install context-management`   |
 | **machine-learning-ops** | ML training pipelines and MLOps     | `/plugin install machine-learning-ops` |
-| **runapi-mcp**           | Media generation MCP (image, video, music, audio, LLM) across 130+ models | `/plugin install runapi-mcp`           |
 | **llm-finetuning**       | Eval-gated LLM fine-tuning lifecycle: dataset prep, LoRA/QLoRA training, and promotion gating | `/plugin install llm-finetuning`       |
 | **dgx-spark-ops**        | NVIDIA DGX Spark (GB10) environment ops: aarch64/CUDA-13 stack setup, training preflights, unified-memory/thermal management | `/plugin install dgx-spark-ops`        |
 
@@ -226,7 +223,7 @@ Next.js, React + Vite, and Node.js project setup with pnpm and TypeScript best p
 | **cloud-infrastructure**  | AWS/Azure/GCP cloud architecture            | `/plugin install cloud-infrastructure`  |
 | **cicd-automation**       | CI/CD pipeline configuration                | `/plugin install cicd-automation`       |
 
-### 🔒 Security (6 plugins)
+### 🔒 Security (7 plugins)
 
 | Plugin                       | Description                                                     | Install                                    |
 | ---------------------------- | --------------------------------------------------------------- | ------------------------------------------ |
@@ -236,6 +233,7 @@ Next.js, React + Vite, and Node.js project setup with pnpm and TypeScript best p
 | **frontend-mobile-security** | XSS/CSRF prevention and mobile security                         | `/plugin install frontend-mobile-security` |
 | **reverse-engineering**      | Binary analysis, malware triage, firmware security (authorized) | `/plugin install reverse-engineering`      |
 | **block-no-verify**          | PreToolUse hook blocking `--no-verify` and hook-bypass flags    | `/plugin install block-no-verify`          |
+| **hol-guard**                | Local pre-execution policy and pre-install agent supply-chain scanning | `/plugin install hol-guard`                 |
 
 ### 🛡️ Governance (3 plugins)
 
@@ -324,12 +322,13 @@ Next.js, React + Vite, and Node.js project setup with pnpm and TypeScript best p
 | ---------------------------- | ---------------------------------- | ------------------------------------------ |
 | **accessibility-compliance** | WCAG auditing and inclusive design | `/plugin install accessibility-compliance` |
 
-### 🎨 Creative (2 plugins)
+### 🎨 Creative (3 plugins)
 
 | Plugin               | Description                                                              | Install                            |
 | -------------------- | ------------------------------------------------------------------------ | ---------------------------------- |
 | **meigen-ai-design** | AI image generation with creative workflow orchestration and prompt MCPs | `/plugin install meigen-ai-design` |
 | **brand-landingpage** | Brand discovery through deployment-ready landing page HTML              | `/plugin install brand-landingpage` |
+| **pptx-deck-creation** | Production-ready editable PowerPoint decks via spec-first, coordinate-explicit workflow | `/plugin install pptx-deck-creation` |
 
 ## Plugin Structure
 
@@ -365,7 +364,7 @@ plugins/python-development/
 /plugin marketplace add wshobson/agents
 ```
 
-This makes all 94 marketplace plugins available for installation, but **does not load any agents or tools** into your context.
+This makes all 93 marketplace plugins available for installation, but **does not load any agents or tools** into your context.
 
 ### Step 2: Install Specific Plugins
 
@@ -382,7 +381,7 @@ Install only the plugins you need:
 /plugin install backend-development
 ```
 
-Each installed plugin loads **only its specific agents and commands** into Claude's context.
+Each installed plugin loads **only its specific agents, commands, and skills** into Claude's context.
 
 ## Plugin Design Principles
 
@@ -408,7 +407,7 @@ Each installed plugin loads **only its specific agents and commands** into Claud
 
 ## See Also
 
-- [Agent Skills](./agent-skills.md) - 175 specialized skills across plugins
+- [Agent Skills](./agent-skills.md) - 181 specialized skills across plugins
 - [Agent Reference](./agents.md) - Complete agent catalog
 - [Usage Guide](./usage.md) - Commands and workflows
 - [Architecture](./architecture.md) - Design principles

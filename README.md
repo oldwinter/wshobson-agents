@@ -1,10 +1,10 @@
 # Agentic Plugin Marketplace
 
-> Production-ready agentic workflow building blocks: **94 plugins**, **203 agents**,
-> **175 skills**, **109 commands** — built for Claude Code and consumed natively by
-> OpenAI Codex CLI, Cursor, OpenCode, Gemini CLI, and GitHub Copilot from a single Markdown source.
+> Production-ready agentic workflow building blocks: **93 plugins**, **202 agents**,
+> **181 skills**, **105 commands** — built for Claude Code and consumed natively by
+> OpenAI Codex CLI, Cursor, OpenCode, the Antigravity CLI, and GitHub Copilot from a single Markdown source.
 
-[![Claude Code](https://img.shields.io/badge/Claude%20Code-native-blueviolet)](#claude-code) [![Codex CLI](https://img.shields.io/badge/Codex%20CLI-supported-black)](docs/harnesses.md) [![Cursor](https://img.shields.io/badge/Cursor-supported-purple)](docs/harnesses.md) [![OpenCode](https://img.shields.io/badge/OpenCode-supported-green)](docs/harnesses.md) [![Gemini CLI](https://img.shields.io/badge/Gemini%20CLI-supported-blue)](GEMINI.md) [![Copilot](https://img.shields.io/badge/Copilot-supported-lightgrey)](docs/harnesses.md)
+[![Claude Code](https://img.shields.io/badge/Claude%20Code-native-blueviolet)](#claude-code) [![Codex CLI](https://img.shields.io/badge/Codex%20CLI-supported-black)](docs/harnesses.md) [![Cursor](https://img.shields.io/badge/Cursor-supported-purple)](docs/harnesses.md) [![OpenCode](https://img.shields.io/badge/OpenCode-supported-green)](docs/harnesses.md) [![Antigravity CLI](https://img.shields.io/badge/Antigravity%20CLI-supported-blue)](docs/harnesses.md) [![Copilot](https://img.shields.io/badge/Copilot-supported-lightgrey)](docs/harnesses.md)
 
 > [!NOTE]
 > One source-of-truth (`plugins/`), five harnesses. Each harness gets idiomatic,
@@ -19,12 +19,12 @@ Pick your harness:
 
 ```bash
 /plugin marketplace add wshobson/agents
-/plugin install python-development          # or any of 94 plugins
+/plugin install python-development          # or any of 93 plugins
 ```
 
 [→ Full Claude Code setup, troubleshooting, and plugin catalog](docs/usage.md)
 
-### Codex CLI · Cursor · OpenCode · Gemini CLI · Copilot
+### Codex CLI · Cursor · OpenCode · Antigravity CLI · Copilot
 
 Codex and Cursor install natively from the committed registries (which point at the source `plugins/`):
 
@@ -33,24 +33,24 @@ npx codex-marketplace add wshobson/agents        # Codex; then install individua
 # Cursor: add the marketplace, then `/plugin install <name>` (reads .cursor-plugin/ + source)
 ```
 
-Gemini and OpenCode install via clone + generate (the transformed trees are gitignored):
+Antigravity and OpenCode install via clone + generate (the transformed trees are gitignored):
 
 ```bash
 gh repo clone wshobson/agents ~/agents && cd ~/agents
-make generate HARNESS=gemini && gemini extensions install .   # Gemini
+make generate HARNESS=antigravity && make install-antigravity  # Antigravity (agy)
 make install-opencode                                          # OpenCode (runs generate + symlinks)
 ```
 
-Setup details and per-harness gotchas: [docs/harnesses.md](docs/harnesses.md). Gemini-specific setup: [GEMINI.md](GEMINI.md) (also auto-loaded by Gemini CLI).
+Setup details and per-harness gotchas: [docs/harnesses.md](docs/harnesses.md).
 
 ## What's inside
 
 | | Count | What it is |
 |---|---:|---|
-| **Plugins** | 94 | Granular, single-purpose installable units (90 local + 4 external via git-subdir) |
-| **Agents** | 203 | Domain experts (architecture, languages, infra, security, data, ML, docs, business, SEO) |
-| **Skills** | 175 | Modular knowledge packages with progressive disclosure (load when activated) |
-| **Commands** | 109 | Slash commands: scaffolding, security scans, test gen, infrastructure setup |
+| **Plugins** | 93 | Granular, single-purpose installable units (91 local + 2 external via git-subdir) |
+| **Agents** | 202 | Domain experts (architecture, languages, infra, security, data, ML, docs, business, SEO) |
+| **Skills** | 181 | Modular knowledge packages with progressive disclosure (load when activated) |
+| **Commands** | 105 | Slash commands: scaffolding, security scans, test gen, infrastructure setup |
 | **Orchestrators** | 16 | Multi-agent coordination workflows (full-stack, security, ML, incident response) |
 
 Browse the catalog: [docs/plugins.md](docs/plugins.md) · [docs/agents.md](docs/agents.md) · [docs/agent-skills.md](docs/agent-skills.md)
@@ -92,7 +92,7 @@ emits harness-native artifacts (not lowest-common-denominator translations):
 | **Codex CLI** | `.agents/plugins/marketplace.json` + `plugins/*/.codex-plugin/plugin.json` (committed); `.codex/skills/`, `.codex/agents/` (gitignored) | 8 KB skill cap respected; commands → skills |
 | **Cursor** | `.cursor-plugin/`, `.cursor/rules/` | Thin marketplace + curated rules; reuses `.claude/` |
 | **OpenCode** | `.opencode/agents/`, `.opencode/commands/`, `.opencode/skills/` | `permission:` block from `tools:` allowlist; OpenCode-safe skill names |
-| **Gemini CLI** | `skills/`, `agents/`, `commands/` (TOML) | Native skills + subagents (April 2026 spec) |
+| **Antigravity CLI** | `.antigravity/plugins/<p>/{skills/,agents/,commands/}` | Self-contained agy plugin per source plugin; model tier alias (`inherit`/`flash`/`pro`) |
 | **Copilot** | `.copilot/agents/`, `.copilot/skills/`, `.copilot/commands/` | Markdown agent profiles + SKILL.md skills + commands-as-skills; model maps to native Claude models |
 
 ```bash
@@ -101,7 +101,7 @@ make validate                            # structural checks
 make garden                              # drift / dead-link / cap detection
 ```
 
-Codex and Cursor install from source via committed registries; Gemini and OpenCode install via clone + `make`.
+Codex and Cursor install from source via committed registries; Antigravity and OpenCode install via clone + `make`.
 
 [→ Full capability matrix and per-harness deep-dives](docs/harnesses.md)
 
@@ -125,9 +125,9 @@ uv run plugin-eval certify path/to/skill
 
 Detail lives in `docs/`. Read in this order:
 
-- **[docs/plugins.md](docs/plugins.md)** — full catalog of all 94 plugins
-- **[docs/agents.md](docs/agents.md)** — all 203 agents by category
-- **[docs/agent-skills.md](docs/agent-skills.md)** — 175 skills with progressive disclosure
+- **[docs/plugins.md](docs/plugins.md)** — full catalog of all 93 plugins
+- **[docs/agents.md](docs/agents.md)** — all 202 agents by category
+- **[docs/agent-skills.md](docs/agent-skills.md)** — 181 skills with progressive disclosure
 - **[docs/usage.md](docs/usage.md)** — commands, workflows, examples
 - **[docs/architecture.md](docs/architecture.md)** — design principles
 - **[docs/harnesses.md](docs/harnesses.md)** — cross-harness capability matrix
@@ -135,7 +135,7 @@ Detail lives in `docs/`. Read in this order:
 - **[docs/plugin-eval.md](docs/plugin-eval.md)** — quality evaluation framework
 - **[docs/round-trip-results.md](docs/round-trip-results.md)** — real-CLI verification recipes
 
-Gemini-specific setup: [GEMINI.md](GEMINI.md). All other harness setup, capability deltas, and gotchas live in [docs/harnesses.md](docs/harnesses.md).
+Harness setup, capability deltas, and gotchas live in [docs/harnesses.md](docs/harnesses.md).
 
 Contributing: [CONTRIBUTING.md](CONTRIBUTING.md) · Authoring: [docs/authoring.md](docs/authoring.md)
 
@@ -143,7 +143,7 @@ Contributing: [CONTRIBUTING.md](CONTRIBUTING.md) · Authoring: [docs/authoring.m
 
 [Pensyve](https://github.com/major7apps/pensyve) is included as an external
 `git-subdir` entry for Claude Code. Pensyve also maintains direct upstream
-integrations for this marketplace's other supported harnesses.
+integrations for Codex CLI, Cursor, OpenCode, and Copilot (not yet Antigravity CLI).
 
 | Harness | Pensyve integration |
 |---|---|
@@ -151,8 +151,24 @@ integrations for this marketplace's other supported harnesses.
 | Codex CLI | [integrations/codex-plugin](https://github.com/major7apps/pensyve/tree/main/integrations/codex-plugin) |
 | Cursor | [integrations/cursor](https://github.com/major7apps/pensyve/tree/main/integrations/cursor) |
 | OpenCode | [integrations/opencode-plugin](https://github.com/major7apps/pensyve/tree/main/integrations/opencode-plugin) |
-| Gemini CLI | `gemini extensions install https://github.com/major7apps/pensyve` |
 | Copilot | `.copilot/` in repo root or `~/.copilot/` via `make install-copilot` |
+
+## External Security Integration
+
+[HOL Guard](https://hol.org/guard) is included as an external
+`git-subdir` entry for Claude Code from the reviewed `distributions/wshobson-agents`
+payload in [hashgraph-online/hol-guard-plugin](https://github.com/hashgraph-online/hol-guard-plugin).
+The payload exposes local `hol-guard` and `plugin-scanner` skills. Guard Cloud is neither
+required nor promoted on the default path. This marketplace entry is a Claude Code
+discovery surface only; it does not add HOL Guard to this repository's generated Codex,
+Cursor, OpenCode, Antigravity, or Copilot registries.
+
+The reviewed external payload is pinned to commit `43b2dda59e9f07057c52e69fd7426188faae1488`. Its local CLI pins are
+`hol-guard==2.2.119` and `plugin-scanner==2.2.119`, and installation requires user approval.
+For a reviewed payload update, the marketplace `sha` and the matching marketplace/external
+manifest versions must be advanced together. When protection is explicitly requested, the
+external `hol-guard` runtime can modify supported harness hook/settings configuration; those
+changes are performed by the local Guard CLI, not by files in this marketplace repository.
 
 ## License
 
@@ -160,4 +176,4 @@ MIT — see [LICENSE](LICENSE).
 
 ## Star history
 
-[![Star History Chart](https://api.star-history.com/svg?repos=wshobson/agents&type=date&legend=top-left)](https://www.star-history.com/#wshobson/agents&type=date&legend=top-left)
+[![Star History Chart](https://star-history.dera.page/svg?repos=wshobson/agents&type=date&legend=top-left)](https://star-history.dera.page/#wshobson/agents&type=date&legend=top-left)

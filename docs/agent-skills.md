@@ -1,6 +1,6 @@
 # Agent Skills
 
-Agent Skills are modular packages that extend Claude's capabilities with specialized domain knowledge, following Anthropic's [Agent Skills Specification](https://github.com/anthropics/skills/blob/main/agent_skills_spec.md). This plugin ecosystem includes **175 local specialized skills** across 48 plugins, enabling progressive disclosure and efficient token usage.
+Agent Skills are modular packages that extend Claude's capabilities with specialized domain knowledge, following Anthropic's [Agent Skills Specification](https://github.com/anthropics/skills/blob/main/agent_skills_spec.md). This plugin ecosystem includes **181 local specialized skills** across 50 plugins, enabling progressive disclosure and efficient token usage.
 
 ## Overview
 
@@ -183,6 +183,12 @@ Skills provide Claude with deep expertise in specific domains without loading ev
 | -------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
 | **before-you-build** | Review demand, positioning, monetization, retention, trust, distribution, and feature-adoption risk before implementation starts |
 
+### Avoid AI Writing (1 skill)
+
+| Skill                | Description                                                                                                 |
+| -------------------- | ----------------------------------------------------------------------------------------------------------- |
+| **avoid-ai-writing** | Audit and rewrite prose that reads as machine-generated, with detect-only, rewrite, and edit-in-place modes   |
+
 ### Data Engineering (4 skills)
 
 | Skill                           | Description                                                                 |
@@ -363,6 +369,16 @@ Skills provide Claude with deep expertise in specific domains without loading ev
 | **checkpoint-promotion**        | Gate checkpoints with drift budgets, paired comparison, and forgetting checks            |
 | **quantized-export**            | Export a promoted model as merged safetensors, LoRA-only, GGUF with imatrix, or FP8      |
 
+### PPTX Deck Creation (5 skills)
+
+| Skill                            | Description                                                                              |
+| -------------------------------- | ---------------------------------------------------------------------------------------- |
+| **pptx-deck-context**            | Prepare the narrative, sources, and design context for a new editable PPTX deck          |
+| **pptx-slide-specification**     | Author or repair a coordinate-explicit JSON specification for an editable PPTX deck      |
+| **pptx-visual-assets**           | Select and place approved icons, images, SVGs, diagrams, and infographics                |
+| **pptx-reference-deck-analysis** | Analyze a reference PPTX read-only for structure, theme, typography, and layout rhythm   |
+| **pptx-quality-gates**           | Validate or repair an editable PPTX deck for geometry, accessibility, and editability    |
+
 ### DGX Spark Ops (3 skills)
 
 | Skill                        | Description                                                                              |
@@ -415,7 +431,7 @@ fastapi-templates skill → Supplies production-ready templates
 
 ## Specification Compliance
 
-All 175 skills follow the [Agent Skills Specification](https://agentskills.io/specification):
+All 181 skills follow the [Agent Skills Specification](https://agentskills.io/specification):
 
 - ✓ Required `name` field (hyphen-case)
 - ✓ Required `description` field with "Use when" clause

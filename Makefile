@@ -16,13 +16,19 @@ YTX_SCRIPT := yt-design-extractor.py
 # `uv run` against the plugin-eval venv — has pyyaml + extra-paths to tools/adapters/
 UV_TOOLS := uv run $(EVAL_PROJECT) python
 
-.PHONY: help install install-ocr install-easyocr deps check run run-full run-ocr run-transcript clean generate generate-all clean-generated install-opencode uninstall-opencode install-copilot uninstall-copilot validate garden test smoke-test generate-plugin sync-commands generate-all-commands clean-commands
+# Paths for `make lint` / `make format`, relative to plugins/plugin-eval/ where the
+# ruff and ty config lives. ty skips tools/yt-design-extractor/ because that tool
+# imports optional OCR dependencies installed only by `make install-ocr`.
+RUFF_PATHS := ../../tools/ src/plugin_eval/
+TY_PATHS := ../../tools/adapters/ ../../tools/generate.py ../../tools/validate_generated.py ../../tools/doc_gardener.py ../../tools/install_opencode.py ../../tools/install_copilot.py ../../tools/install_antigravity.py ../../tools/check_agent_name_collisions.py ../../tools/tests/ src/plugin_eval/
+
+.PHONY: help install install-ocr install-easyocr deps check run run-full run-ocr run-transcript clean generate generate-all clean-generated install-opencode uninstall-opencode install-copilot uninstall-copilot install-antigravity uninstall-antigravity validate garden lint format test smoke-test
 
 help:
 	@echo "claude-agents — multi-harness plugin marketplace"
 	@echo "================================================="
 	@echo ""
-	@echo "Multi-harness adapter (Codex / Cursor / OpenCode / Gemini):"
+	@echo "Multi-harness adapter (Codex / Cursor / OpenCode / Antigravity):"
 	@echo "  make generate HARNESS=<h> [PLUGIN=<p>]           Generate per-harness artifacts (defaults to all plugins)"
 	@echo "  make generate-all                                Generate for ALL harnesses + ALL plugins"
 	@echo "  make clean-generated [HARNESS=<h>]               Remove generated artifacts"
@@ -30,15 +36,14 @@ help:
 	@echo "  make uninstall-opencode                          Remove repo-owned OpenCode symlinks"
 	@echo "  make install-copilot [FORCE=1]                   Symlink Copilot artifacts into global config"
 	@echo "  make uninstall-copilot                           Remove repo-owned Copilot symlinks"
+	@echo "  make install-antigravity [FORCE=1]               Symlink Antigravity plugins into global config"
+	@echo "  make uninstall-antigravity                       Remove repo-owned Antigravity symlinks"
 	@echo "  make validate [HARNESS=<h>] [STRICT=1]           Structural validation of generated artifacts"
 	@echo "  make garden [STRICT=1]                           Run doc-gardener (drift detection)"
+	@echo "  make lint                                        ruff + ty, exactly as CI runs them"
+	@echo "  make format                                      Apply ruff format and safe fixes"
 	@echo "  make test                                        Full pytest suite (plugin-eval + tools)"
 	@echo "  make smoke-test                                  Real-CLI smoke test (skips CLIs not on PATH)"
-	@echo ""
-	@echo "Legacy Gemini CLI targets (kept for compatibility — wrap make generate):"
-	@echo "  make generate-plugin PLUGIN=<name>  Generate Gemini commands for one plugin"
-	@echo "  make sync-commands                  Keep Gemini commands in sync"
-	@echo "  make generate-all-commands          Generate Gemini commands for ALL plugins"
 	@echo ""
 	@echo "YouTube Design Extractor Setup (run in order):"
 	@echo "  make install-ocr     Install system tools (tesseract + ffmpeg)"
@@ -57,7 +62,7 @@ help:
 	@echo "Examples:"
 	@echo "  make run URL='https://youtu.be/eVnQFWGDEdY'"
 	@echo "  make run-full URL='https://youtu.be/eVnQFWGDEdY' INTERVAL=15"
-	@echo "  make generate-plugin PLUGIN=javascript-typescript"
+	@echo "  make generate HARNESS=codex PLUGIN=javascript-typescript"
 	@echo ""
 	@echo "Options (pass as make variables):"
 	@echo "  URL=<url>          YouTube video URL (required)"
@@ -161,7 +166,7 @@ clean:
 #   make generate-all
 #   make clean-generated HARNESS=opencode
 
-HARNESSES := codex copilot cursor gemini opencode
+HARNESSES := codex copilot cursor opencode antigravity
 
 generate:
 ifndef HARNESS
@@ -174,13 +179,13 @@ endif
 ifdef PLUGIN
 	$(UV_TOOLS) $(GENERATE) --harness '$(HARNESS)' --plugin '$(PLUGIN)'
 else
-	$(UV_TOOLS) $(GENERATE) --harness '$(HARNESS)' --all
+	$(UV_TOOLS) $(GENERATE) --harness '$(HARNESS)' --all --prune
 endif
 
 generate-all:
 	@for h in $(HARNESSES); do \
 		echo "--- $$h ---"; \
-		$(UV_TOOLS) $(GENERATE) --harness $$h --all || exit 1; \
+		$(UV_TOOLS) $(GENERATE) --harness $$h --all --prune || exit 1; \
 	done
 
 validate:
@@ -193,16 +198,33 @@ endif
 garden:
 	$(UV_TOOLS) tools/doc_gardener.py $(if $(STRICT),--strict)
 
+# Code-quality gates. These MUST run from plugins/plugin-eval/, which is where the
+# [tool.ruff] and [tool.ty] config lives and where CI runs them. Running ruff from the
+# repo root silently falls back to line-length 88 and disagrees with CI, so use these
+# targets rather than invoking ruff directly.
+#
+# --extra dev matters: ruff and ty live in that extra. Without it `uv run ruff`
+# provisions an unpinned ruff on the fly, which can differ from the locked version CI
+# uses and disagree about formatting.
+lint:
+	cd plugins/plugin-eval && uv run --extra dev ruff check $(RUFF_PATHS)
+	cd plugins/plugin-eval && uv run --extra dev ruff format --check $(RUFF_PATHS)
+	cd plugins/plugin-eval && uv run --extra dev ty check $(TY_PATHS)
+
+format:
+	cd plugins/plugin-eval && uv run --extra dev ruff format $(RUFF_PATHS)
+	cd plugins/plugin-eval && uv run --extra dev ruff check --fix $(RUFF_PATHS)
+
 # Full pytest suite — plugin-eval framework + tools/ adapters/validators/gardener.
 test:
-	uv run $(EVAL_PROJECT) pytest -q plugins/plugin-eval/ tools/tests/
+	uv run $(EVAL_PROJECT) pytest -q plugins/plugin-eval/ tools/tests/ --ignore=tools/tests/test_cli_smoke.py
 
 # Real-CLI smoke test. Generates artifacts (if not present), then invokes whichever
-# of opencode / gemini / codex / claude are on PATH. Per-CLI tests skip gracefully
+# of opencode / agy / codex / claude are on PATH. Per-CLI tests skip gracefully
 # when the binary is missing — so local devs only exercise what they have installed.
-# CI installs OpenCode + Gemini + Codex and turns those skips into hard requirements.
+# CI installs OpenCode + Antigravity + Codex and turns those skips into hard requirements.
 smoke-test:
-	@if [ ! -d .opencode ] || [ ! -d .codex ] || [ ! -d commands ]; then \
+	@if [ ! -d .opencode ] || [ ! -d .codex ] || [ ! -d .antigravity ]; then \
 		echo "Generating harness artifacts first..."; \
 		$(MAKE) generate-all; \
 	fi
@@ -231,20 +253,9 @@ install-copilot:
 uninstall-copilot:
 	$(UV_TOOLS) tools/install_copilot.py uninstall
 
-# Legacy Gemini wrappers (delegate to the unified CLI)
-generate-plugin:
-ifndef PLUGIN
-	@echo "Error: PLUGIN is required (e.g., make generate-plugin PLUGIN=javascript-typescript)"
-	@exit 1
-endif
-	$(UV_TOOLS) $(GENERATE) --harness gemini --plugin '$(PLUGIN)'
+install-antigravity:
+	$(UV_TOOLS) $(GENERATE) --harness antigravity --all --prune
+	$(UV_TOOLS) tools/install_antigravity.py install $(if $(filter 1 true TRUE yes YES,$(FORCE)),--force)
 
-sync-commands:
-	$(UV_TOOLS) $(GENERATE) --harness gemini --all --prune
-
-generate-all-commands:
-	$(UV_TOOLS) $(GENERATE) --harness gemini --all
-
-clean-commands:
-	-rm -rf commands/
-	@echo "Cleaned up commands/ (top-level Gemini TOMLs)"
+uninstall-antigravity:
+	$(UV_TOOLS) tools/install_antigravity.py uninstall

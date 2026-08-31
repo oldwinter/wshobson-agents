@@ -6,7 +6,7 @@
     "url": "https://github.com/wshobson"
   },
   "metadata": {
-    "description": "Production-ready workflow orchestration with 94 marketplace plugins, 203 local specialized agents, and 175 local skills - optimized for granular installation and minimal token usage",
+    "description": "Production-ready workflow orchestration with 92 marketplace plugins, 202 local specialized agents, and 181 local skills - optimized for granular installation and minimal token usage",
     "version": "1.7.1"
   },
   "plugins": [
@@ -86,6 +86,19 @@
         "email": ""
       },
       "license": "MIT"
+    },
+    {
+      "name": "avoid-ai-writing",
+      "source": "./plugins/avoid-ai-writing",
+      "version": "1.0.0",
+      "description": "Audit and rewrite prose that reads as machine-generated, across READMEs, changelogs, PR descriptions, docs, and blog copy, with detect-only, rewrite, and edit-in-place modes.",
+      "author": {
+        "name": "Conor Bronsdon",
+        "email": ""
+      },
+      "homepage": "https://github.com/conorbronsdon/avoid-ai-writing",
+      "license": "MIT",
+      "category": "documentation"
     },
     {
       "name": "backend-api-security",
@@ -564,8 +577,8 @@
     {
       "name": "hermes-tweet",
       "source": "./plugins/hermes-tweet",
-      "version": "0.1.6",
-      "description": "Hermes Agent plugin for X/Twitter research, timeline reading, tweet analysis, and approval-gated tweet actions through Hermes Tweet",
+      "version": "0.1.13",
+      "description": "Hermes Agent plugin for public X/Twitter research and approval-gated private or state-changing operations through Hermes Tweet",
       "author": {
         "name": "Xquik",
         "email": ""
@@ -813,19 +826,6 @@
         "email": "tommy@scopeblind.com"
       },
       "license": "MIT"
-    },
-    {
-      "name": "runapi-mcp",
-      "source": "./plugins/runapi-mcp",
-      "version": "0.1.3",
-      "description": "RunAPI MCP server for browsing models, checking pricing, and creating image, video, music, audio, and LLM tasks.",
-      "author": {
-        "name": "RunAPI",
-        "email": ""
-      },
-      "homepage": "https://github.com/runapi-ai/mcp",
-      "license": "Apache-2.0",
-      "category": "ai-ml"
     },
     {
       "name": "security-compliance",

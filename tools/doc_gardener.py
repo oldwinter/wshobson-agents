@@ -3,11 +3,13 @@
 
 Per the OpenAI harness engineering pattern, a recurring task scans for:
 1. Generated artifacts whose source file is newer (regenerate needed)
-2. Context files (AGENTS.md, GEMINI.md, CLAUDE.md) above ~150 lines
+2. Context files (AGENTS.md, CLAUDE.md) above ~150 lines
 3. Dead links from docs/ into plugins/ or other docs/
 4. Skills above 8 KB body without `references/` (Codex hard cap)
 5. Plugin entries in marketplace.json without a corresponding plugins/<name>/ directory
 6. Plugins missing from marketplace.json
+7. Component counts quoted in README.md / AGENTS.md that no longer match reality
+8. Same-named agents whose bodies have diverged across plugins
 
 Each finding ships with a `Fix:` remediation line.
 
@@ -20,11 +22,14 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import re
 import sys
+from collections import defaultdict
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Any, cast
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
@@ -36,11 +41,36 @@ MARKETPLACE_JSON = WORKTREE / ".claude-plugin" / "marketplace.json"
 
 CONTEXT_FILES = {
     "AGENTS.md": 150,
-    "GEMINI.md": 150,
     "CLAUDE.md": 200,  # slightly larger since it documents the source-of-truth
 }
 
 CODEX_SKILL_CAP_BYTES = 8 * 1024
+
+# Headline component counts are quoted in these files and go stale on every
+# plugin add/remove. Only the two canonical context files are scanned — docs/
+# carries per-category subtotals that legitimately differ from the totals.
+COUNT_DOC_FILES = ("README.md", "AGENTS.md")
+COUNT_RE = re.compile(r"\b(\d[\d,]*)\s+(plugins?|subagents?|agents?|skills?|commands?)\b")
+
+# Every spelling the two files use, mapped to its key in actual_counts(). AGENTS.md
+# calls the agent total "subagents" in its cross-harness section, and a total of one
+# would be written in the singular. Singular forms are matched for that reason, which
+# is also why only these two curated files are scanned: prose like "each plugin ships
+# 1 agent" elsewhere would read as a stale total.
+COUNT_NOUN_ALIASES = {
+    "plugin": "plugins",
+    "subagent": "agents",
+    "subagents": "agents",
+    "agent": "agents",
+    "skill": "skills",
+    "command": "commands",
+}
+
+# An agent's frontmatter `name:` is plugin-namespaced, so two copies of the same agent
+# can never compare equal on raw text. It is dropped before comparing. A byte-order
+# mark or leading blank line would otherwise hide the frontmatter from the parser.
+BOM = "\ufeff"
+BODY_LEADING_BLANKS_RE = re.compile(r"\A(?:[ \t]*\n)+")
 
 
 # ── Findings ─────────────────────────────────────────────────────────────────
@@ -73,6 +103,39 @@ class Report:
 
     def by_severity(self, severity: str) -> list[Finding]:
         return [f for f in self.findings if f.severity == severity]
+
+
+def marketplace_entry_problem(entry: object) -> str | None:
+    """Say why a `plugins[]` entry is unusable, or None when it is fine.
+
+    Both readers of the manifest go through this. When only one of them enforced the
+    shape, a counts-only run could report a stale total from a manifest the
+    consistency check rejects.
+    """
+    if not isinstance(entry, dict):
+        return f" is {type(entry).__name__}, expected an object"
+    name = entry.get("name")
+    if name is not None and not isinstance(name, str):
+        return f".name is {type(name).__name__}, expected a string"
+    return None
+
+
+def read_text_or_none(path: Path, report: Report) -> str | None:
+    """Read a file as UTF-8, reporting a finding rather than killing the whole run.
+
+    One unreadable file should cost its own finding, not every other check's output.
+    """
+    try:
+        return path.read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError) as exc:
+        report.add(
+            kind="UNREADABLE_FILE",
+            severity="error",
+            path=path,
+            message=f"cannot be read as UTF-8 text: {exc}",
+            fix="Re-save the file as UTF-8, or remove it if it is not source.",
+        )
+        return None
 
 
 # ── Checks ───────────────────────────────────────────────────────────────────
@@ -182,39 +245,6 @@ def check_stale_artifacts(report: Report) -> None:
             if src and src.is_file():
                 pairs.append((src, skill_md))
 
-    # Gemini skills and agents at root
-    for top_dir in ("skills", "agents"):
-        root = WORKTREE / top_dir
-        if root.is_dir():
-            pattern = "*/SKILL.md" if top_dir == "skills" else "*.md"
-            for gen in root.glob(pattern):
-                name = gen.parent.name if top_dir == "skills" else gen.stem
-                if "__" in name:
-                    plugin, leaf = name.split("__", 1)
-                    if top_dir == "skills":
-                        src = PLUGINS_DIR / plugin / "skills" / leaf / "SKILL.md"
-                    else:
-                        src = PLUGINS_DIR / plugin / "agents" / f"{leaf}.md"
-                    if src.is_file():
-                        pairs.append((src, gen))
-
-    # Gemini commands at commands/<plugin>/<cmd>.toml -> plugins/<plugin>/commands/<cmd>.md
-    gemini_commands = WORKTREE / "commands"
-    if gemini_commands.is_dir():
-        for toml_path in gemini_commands.rglob("*.toml"):
-            # Top-level commands/<plugin>.toml maps to the plugin's plugin.json
-            if toml_path.parent == gemini_commands:
-                plugin = toml_path.stem
-                src = PLUGINS_DIR / plugin / ".claude-plugin" / "plugin.json"
-                if src.is_file():
-                    pairs.append((src, toml_path))
-            else:
-                plugin = toml_path.parent.name
-                cmd = toml_path.stem
-                src = PLUGINS_DIR / plugin / "commands" / f"{cmd}.md"
-                if src.is_file():
-                    pairs.append((src, toml_path))
-
     # Copilot agents (.agent.md) and skills (SKILL.md) at .copilot/
     copilot_root = WORKTREE / ".copilot"
     copilot_agents = copilot_root / "agents"
@@ -239,6 +269,30 @@ def check_stale_artifacts(report: Report) -> None:
                 if src.is_file():
                     pairs.append((src, skill_md))
 
+    # Antigravity: one self-contained plugin dir per source plugin at
+    # .antigravity/plugins/<plugin>/{plugin.json,skills/,agents/,commands/<plugin>/}.
+    antigravity_plugins = WORKTREE / ".antigravity" / "plugins"
+    if antigravity_plugins.is_dir():
+        for plugin_dir in sorted(p for p in antigravity_plugins.iterdir() if p.is_dir()):
+            plugin_name = plugin_dir.name
+            plugin_json = plugin_dir / "plugin.json"
+            if plugin_json.is_file():
+                src = PLUGINS_DIR / plugin_name / ".claude-plugin" / "plugin.json"
+                if src.is_file():
+                    pairs.append((src, plugin_json))
+            for skill_md in (plugin_dir / "skills").glob("*/SKILL.md"):
+                src = PLUGINS_DIR / plugin_name / "skills" / skill_md.parent.name / "SKILL.md"
+                if src.is_file():
+                    pairs.append((src, skill_md))
+            for agent_md in (plugin_dir / "agents").glob("*.md"):
+                src = PLUGINS_DIR / plugin_name / "agents" / agent_md.name
+                if src.is_file():
+                    pairs.append((src, agent_md))
+            for toml_path in (plugin_dir / "commands").rglob("*.toml"):
+                src = PLUGINS_DIR / plugin_name / "commands" / f"{toml_path.stem}.md"
+                if src.is_file():
+                    pairs.append((src, toml_path))
+
     for src, gen in pairs:
         if src.stat().st_mtime > gen.stat().st_mtime + 1:  # 1s grace
             # Derive the plugin name correctly regardless of source layout.
@@ -262,7 +316,10 @@ def check_oversized_context_files(report: Report) -> None:
         path = WORKTREE / name
         if not path.is_file():
             continue
-        line_count = len(path.read_text().splitlines())
+        content = read_text_or_none(path, report)
+        if content is None:
+            continue
+        line_count = len(content.splitlines())
         if line_count > cap:
             report.add(
                 kind="CONTEXT_FILE_OVERSIZED",
@@ -280,7 +337,6 @@ def check_dead_links(report: Report) -> None:
         "README.md",
         "CLAUDE.md",
         "AGENTS.md",
-        "GEMINI.md",
     ):
         p = WORKTREE / top_file
         if p.is_file():
@@ -291,9 +347,8 @@ def check_dead_links(report: Report) -> None:
     for target in targets:
         files = list(target.rglob("*.md")) if target.is_dir() else [target]
         for md in files:
-            try:
-                content = md.read_text(encoding="utf-8")
-            except OSError:
+            content = read_text_or_none(md, report)
+            if content is None:
                 continue
             for link in link_pattern.findall(content):
                 # Skip external links and anchors
@@ -315,8 +370,10 @@ def check_codex_skill_caps(report: Report) -> None:
     if not PLUGINS_DIR.is_dir():
         return
     for skill_md in PLUGINS_DIR.glob("*/skills/*/SKILL.md"):
-        content = skill_md.read_text(encoding="utf-8")
-        fm, body = parse_frontmatter(content)
+        content = read_text_or_none(skill_md, report)
+        if content is None:
+            continue
+        _, body = parse_frontmatter(content)
         body_bytes = len(body.encode("utf-8"))
         if body_bytes > CODEX_SKILL_CAP_BYTES:
             refs = skill_md.parent / "references"
@@ -334,7 +391,10 @@ def check_marketplace_consistency(report: Report) -> None:
     if not MARKETPLACE_JSON.is_file():
         return
     try:
-        data = json.loads(MARKETPLACE_JSON.read_text())
+        raw = read_text_or_none(MARKETPLACE_JSON, report)
+        if raw is None:
+            return
+        data = json.loads(raw)
     except json.JSONDecodeError as e:
         report.add(
             kind="MARKETPLACE_PARSE",
@@ -349,7 +409,28 @@ def check_marketplace_consistency(report: Report) -> None:
     # missing LOCAL entries as orphans — externals legitimately don't have a plugins/<name>/.
     local_entries: dict[str, dict] = {}
     external_names: set[str] = set()
-    for entry in data.get("plugins", []):
+    entries = data.get("plugins", []) if isinstance(data, dict) else None
+    if not isinstance(entries, list):
+        report.add(
+            kind="MARKETPLACE_SHAPE",
+            severity="error",
+            path=MARKETPLACE_JSON,
+            message="expected an object with a `plugins` list at the top level",
+            fix='Restore the manifest shape: {"plugins": [ ... ]}.',
+        )
+        return
+    for position, raw_entry in enumerate(entries):
+        problem = marketplace_entry_problem(raw_entry)
+        if problem is not None:
+            report.add(
+                kind="MARKETPLACE_SHAPE",
+                severity="error",
+                path=MARKETPLACE_JSON,
+                message=f"plugins[{position}]{problem}",
+                fix="Remove the entry or give it the usual name/source/description fields.",
+            )
+            continue
+        entry = cast("dict[str, Any]", raw_entry)
         name = entry.get("name")
         if not name:
             continue
@@ -386,12 +467,163 @@ def check_marketplace_consistency(report: Report) -> None:
             )
 
 
+def canonical_frontmatter_value(value: object) -> object:
+    """Order-independent form of a parsed frontmatter value.
+
+    Mapping key order carries no meaning, and `repr` preserves insertion order, so two
+    agents with the same nested fields written in a different order would otherwise
+    hash differently. List order is left alone because it is meaningful.
+    """
+    if isinstance(value, dict):
+        return {key: canonical_frontmatter_value(value[key]) for key in sorted(value)}
+    if isinstance(value, list):
+        return [canonical_frontmatter_value(item) for item in value]
+    return value
+
+
+def normalized_agent_text(text: str) -> str:
+    """Render an agent as its frontmatter fields minus `name`, plus its body.
+
+    Uses the same frontmatter parser the adapters use, so a copy is judged on its
+    fields and body rather than on exact delimiter formatting. That keeps CRLF files,
+    a closing `---` at end of file, and a trailing space after a delimiter from
+    reading as drift. A `name:` line in the body is body content and still counts.
+    """
+    text = text.lstrip(BOM)
+    trimmed = text.lstrip()
+    # Blank lines ahead of a frontmatter block are formatting. Ahead of anything else
+    # they are body content, and stripping them would hide an indentation difference.
+    if trimmed.startswith("---"):
+        text = trimmed
+    fields, body = parse_frontmatter(text)
+    fields.pop("name", None)
+    rendered = "\n".join(
+        f"{key}: {canonical_frontmatter_value(fields[key])!r}" for key in sorted(fields)
+    )
+    # Line endings are formatting, so a CRLF copy must match its LF twin.
+    # parse_frontmatter strips leading "\n" but leaves the "\r" behind it.
+    # Strip newlines only, never spaces: leading indentation is content, so an
+    # indented code block must not compare equal to plain prose.
+    # Leading whitespace-only lines are delimiter residue: parse_frontmatter leaves
+    # the spaces from a `--- ` closing line, and blank lines before the body are
+    # formatting. Both go. A line that starts with spaces then real text is content,
+    # so its indentation survives.
+    normalized_body = BODY_LEADING_BLANKS_RE.sub("", body.replace("\r\n", "\n")).rstrip()
+    return f"{rendered}\n---\n{normalized_body}"
+
+
+def actual_counts(report: Report) -> dict[str, int | None]:
+    """Live component totals, counted the same way the adapters discover them.
+
+    `plugins` counts marketplace entries rather than plugins/ directories, because
+    the headline figure includes external (git-subdir) entries that have no local dir.
+    It is None when the manifest is missing or unparseable, which means "unknown"
+    rather than zero — otherwise one JSON syntax error would report every documented
+    plugin count as stale and tell the reader to write zero.
+    """
+    plugins: int | None = None
+    if MARKETPLACE_JSON.is_file():
+        raw = read_text_or_none(MARKETPLACE_JSON, report)
+        try:
+            manifest = None if raw is None else json.loads(raw)
+        except json.JSONDecodeError:
+            manifest = None  # check_marketplace_consistency reports the parse error
+        # Valid JSON of the wrong shape is still an unknown count, not a crash.
+        if isinstance(manifest, dict):
+            entries = manifest.get("plugins")
+            # Malformed entries make the total unknown. Counting them would let
+            # garbage drive an error-severity finding, and would disagree with
+            # check_marketplace_consistency about the same manifest.
+            if isinstance(entries, list) and all(
+                marketplace_entry_problem(e) is None for e in entries
+            ):
+                plugins = len(entries)
+    return {
+        "plugins": plugins,
+        "agents": len(list(PLUGINS_DIR.glob("*/agents/*.md"))),
+        "skills": len(list(PLUGINS_DIR.glob("*/skills/*/SKILL.md"))),
+        "commands": len(list(PLUGINS_DIR.glob("*/commands/*.md"))),
+    }
+
+
+def check_doc_counts(report: Report) -> None:
+    """Component counts quoted in README.md / AGENTS.md that no longer match reality."""
+    counts = actual_counts(report)
+    for filename in COUNT_DOC_FILES:
+        path = WORKTREE / filename
+        if not path.is_file():
+            continue
+        content = read_text_or_none(path, report)
+        if content is None:
+            continue
+        for lineno, line in enumerate(content.splitlines(), 1):
+            for quoted, noun in COUNT_RE.findall(line):
+                key = COUNT_NOUN_ALIASES.get(noun, noun)
+                actual = counts[key]
+                # A thousands separator is still one number: 1,234 agents.
+                claimed = int(quoted.replace(",", ""))
+                if actual is None or claimed == actual:
+                    continue
+                report.add(
+                    kind="STALE_COUNT",
+                    severity="error",
+                    path=path,
+                    message=f"line {lineno} says {quoted} {noun}, actual is {actual}",
+                    fix=f"Update the count to {actual} (every mention, not just this line).",
+                )
+
+
+def check_agent_divergence(report: Report) -> None:
+    """Same-named agents whose bodies have drifted apart across plugins.
+
+    Plugins are installed individually, so a shared agent is genuinely copied into
+    each plugin that offers it. A verbatim copy is therefore expected and is not
+    reported at all. Only copies whose bodies have drifted apart are findings.
+    """
+    if not PLUGINS_DIR.is_dir():
+        return
+    by_filename: dict[str, list[Path]] = defaultdict(list)
+    for agent_path in sorted(PLUGINS_DIR.glob("*/agents/*.md")):
+        by_filename[agent_path.name].append(agent_path)
+
+    for filename, paths in sorted(by_filename.items()):
+        if len(paths) < 2:
+            continue
+        bodies: dict[str, list[Path]] = defaultdict(list)
+        for path in paths:
+            raw = read_text_or_none(path, report)
+            if raw is None:
+                continue
+            normalized = normalized_agent_text(raw)
+            bodies[hashlib.md5(normalized.encode("utf-8")).hexdigest()].append(path)
+
+        if len(bodies) > 1:
+            variants = " | ".join(
+                "+".join(p.parent.parent.name for p in group) for group in bodies.values()
+            )
+            report.add(
+                kind="AGENT_BODY_DIVERGENT",
+                severity="warning",
+                path=paths[0],
+                message=(
+                    f"`{filename}` has {len(paths)} copies in {len(bodies)} different "
+                    f"versions: {variants}"
+                ),
+                fix=(
+                    "Reconcile the copies, or rename the intentional variants so the "
+                    "difference is visible in the agent name rather than hidden in the body."
+                ),
+            )
+
+
 CHECKS = {
     "stale": check_stale_artifacts,
     "context": check_oversized_context_files,
     "links": check_dead_links,
     "codex-cap": check_codex_skill_caps,
     "marketplace": check_marketplace_consistency,
+    "counts": check_doc_counts,
+    "agent-divergence": check_agent_divergence,
 }
 
 
