@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import subprocess
 import sys
+import tempfile
+import unittest
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parent.parent.parent
@@ -20,29 +22,32 @@ def run_generate(*args: str) -> subprocess.CompletedProcess[str]:
     )
 
 
-def test_missing_plugin_prints_try_and_exits_2() -> None:
-    proc = run_generate("--harness", "gemini")
-    assert proc.returncode == 2
-    assert "No --plugin or --all specified" in proc.stderr
-    assert TRY in proc.stderr
+class GenerateUsageTests(unittest.TestCase):
+    def test_missing_plugin_prints_try_and_exits_2(self) -> None:
+        proc = run_generate("--harness", "gemini")
+        self.assertEqual(proc.returncode, 2)
+        self.assertIn("No --plugin or --all specified", proc.stderr)
+        self.assertIn(TRY, proc.stderr)
+
+    def test_help_includes_try_example(self) -> None:
+        proc = run_generate("--help")
+        self.assertEqual(proc.returncode, 0)
+        self.assertIn(TRY, proc.stdout)
+
+    def test_unknown_plugin_suggests_neighbor_and_try(self) -> None:
+        proc = run_generate("--harness", "gemini", "--plugin", "python-developmnt")
+        self.assertEqual(proc.returncode, 1)
+        self.assertIn("plugins/python-developmnt/", proc.stderr)
+        self.assertIn("python-development", proc.stderr)
+        self.assertIn(TRY, proc.stderr)
+
+    def test_clean_alone_does_not_require_plugin(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            proc = run_generate("--harness", "gemini", "--clean", "--output-root", tmp)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertIn("Cleaned", proc.stdout)
+        self.assertNotIn("No --plugin or --all specified", proc.stderr)
 
 
-def test_help_includes_try_example() -> None:
-    proc = run_generate("--help")
-    assert proc.returncode == 0
-    assert TRY in proc.stdout
-
-
-def test_unknown_plugin_suggests_neighbor_and_try() -> None:
-    proc = run_generate("--harness", "gemini", "--plugin", "python-developmnt")
-    assert proc.returncode == 1
-    assert "plugins/python-developmnt/" in proc.stderr
-    assert "python-development" in proc.stderr
-    assert TRY in proc.stderr
-
-
-def test_clean_alone_does_not_require_plugin(tmp_path: Path) -> None:
-    proc = run_generate("--harness", "gemini", "--clean", "--output-root", str(tmp_path))
-    assert proc.returncode == 0
-    assert "Cleaned" in proc.stdout
-    assert "No --plugin or --all specified" not in proc.stderr
+if __name__ == "__main__":
+    unittest.main()
