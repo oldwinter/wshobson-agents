@@ -8,6 +8,7 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import difflib
 import shutil
 import sys
 import traceback
@@ -26,6 +27,10 @@ from tools.adapters.base import (
     load_plugin,
 )
 from tools.adapters.capabilities import supported_harnesses
+
+TRY_EXAMPLE = (
+    "try: python tools/generate.py --harness gemini --plugin python-development"
+)
 
 # Per-harness output targets used by both `--clean` and `--prune`.
 _HARNESS_TARGETS = {
@@ -187,6 +192,8 @@ def prune_orphans(harness_id: str, output_root: Path, written: set[Path]) -> lis
 def main() -> int:
     parser = argparse.ArgumentParser(
         description="Generate harness-native artifacts from plugin sources.",
+        epilog=TRY_EXAMPLE,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     parser.add_argument(
         "--harness",
@@ -246,11 +253,13 @@ def main() -> int:
             return 0
 
     if not args.plugin and not args.all:
+        parser.print_usage(file=sys.stderr)
         print(
-            "No --plugin or --all specified. Use --all to generate every plugin.",
+            "No --plugin or --all specified.",
             file=sys.stderr,
         )
-        return 1
+        print(TRY_EXAMPLE, file=sys.stderr)
+        return 2
 
     if not PLUGINS_DIR.is_dir():
         print(f"Error: plugins directory not found at {PLUGINS_DIR}", file=sys.stderr)
@@ -262,6 +271,10 @@ def main() -> int:
             f"Error: plugin directory not found: plugins/{args.plugin}/",
             file=sys.stderr,
         )
+        nearby = difflib.get_close_matches(args.plugin, list_plugins(), n=3, cutoff=0.4)
+        if nearby:
+            print(f"Did you mean: {', '.join(nearby)}", file=sys.stderr)
+        print(TRY_EXAMPLE, file=sys.stderr)
         return 1
 
     targets = [args.plugin] if args.plugin else list_plugins()
