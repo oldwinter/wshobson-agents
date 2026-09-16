@@ -1,5 +1,7 @@
 # Agentic Plugin Marketplace
 
+This repository is [`oldwinter/wshobson-agents`](https://github.com/oldwinter/wshobson-agents), a fork of [`wshobson/agents`](https://github.com/wshobson/agents). Use the Quick start commands below so you install this clone. Upstream remains `wshobson/agents`.
+
 > Production-ready agentic workflow building blocks: **94 plugins**, **203 agents**,
 > **175 skills**, **109 commands** — built for Claude Code and consumed natively by
 > OpenAI Codex CLI, Cursor, OpenCode, Gemini CLI, and GitHub Copilot from a single Markdown source.
@@ -18,7 +20,7 @@ Pick your harness:
 ### Claude Code
 
 ```bash
-/plugin marketplace add wshobson/agents
+/plugin marketplace add oldwinter/wshobson-agents
 /plugin install python-development          # or any of 94 plugins
 ```
 
@@ -29,14 +31,14 @@ Pick your harness:
 Codex and Cursor install natively from the committed registries (which point at the source `plugins/`):
 
 ```bash
-npx codex-marketplace add wshobson/agents        # Codex; then install individual plugins
+npx codex-marketplace add oldwinter/wshobson-agents        # Codex; then install individual plugins
 # Cursor: add the marketplace, then `/plugin install <name>` (reads .cursor-plugin/ + source)
 ```
 
 Gemini and OpenCode install via clone + generate (the transformed trees are gitignored):
 
 ```bash
-gh repo clone wshobson/agents ~/agents && cd ~/agents
+gh repo clone oldwinter/wshobson-agents ~/agents && cd ~/agents
 make generate HARNESS=gemini && gemini extensions install .   # Gemini
 make install-opencode                                          # OpenCode (runs generate + symlinks)
 ```
