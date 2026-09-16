@@ -28,9 +28,7 @@ from tools.adapters.base import (
 )
 from tools.adapters.capabilities import supported_harnesses
 
-TRY_EXAMPLE = (
-    "try: python tools/generate.py --harness gemini --plugin python-development"
-)
+TRY_EXAMPLE = "try: python tools/generate.py --harness gemini --plugin python-development"
 
 # Per-harness output targets used by both `--clean` and `--prune`.
 _HARNESS_TARGETS = {
